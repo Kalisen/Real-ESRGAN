@@ -30,6 +30,7 @@ def get_video_meta_info(video_path):
     has_audio = any(stream['codec_type'] == 'audio' for stream in probe['streams'])
     ret['width'] = video_streams[0]['width']
     ret['height'] = video_streams[0]['height']
+    ret['dar'] = video_streams[0]['display_aspect_ratio']
     ret['fps'] = eval(video_streams[0]['avg_frame_rate'])
     ret['audio'] = ffmpeg.input(video_path).audio if has_audio else None
     ret['nb_frames'] = int(video_streams[0]['nb_frames'])
@@ -72,6 +73,7 @@ class Reader:
             meta = get_video_meta_info(video_path)
             self.width = meta['width']
             self.height = meta['height']
+            self.dar = meta['dar']
             self.input_fps = meta['fps']
             self.audio = meta['audio']
             self.nb_frames = meta['nb_frames']
@@ -136,7 +138,7 @@ class Reader:
 
 class Writer:
 
-    def __init__(self, args, audio, height, width, video_save_path, fps):
+    def __init__(self, args, audio, height, width, dar, video_save_path, fps):
         out_width, out_height = int(width * args.outscale), int(height * args.outscale)
         if out_height > 2160:
             print('You are generating video that is larger than 4K, which will be very slow due to IO speed.',
@@ -150,6 +152,7 @@ class Writer:
                                  video_save_path,
                                  pix_fmt='yuv420p',
                                  vcodec='libx264',
+                                 aspect=f'{dar}',
                                  loglevel='error',
                                  acodec='copy').overwrite_output().run_async(
                                      pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
@@ -157,7 +160,7 @@ class Writer:
             self.stream_writer = (
                 ffmpeg.input('pipe:', format='rawvideo', pix_fmt='bgr24', s=f'{out_width}x{out_height}',
                              framerate=fps).output(
-                                 video_save_path, pix_fmt='yuv420p', vcodec='libx264',
+                                 video_save_path, pix_fmt='yuv420p', vcodec='libx264', aspect=f'{dar}',
                                  loglevel='error').overwrite_output().run_async(
                                      pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
 
@@ -250,7 +253,7 @@ def inference_video(args, video_save_path, device=None, total_workers=1, worker_
     audio = reader.get_audio()
     height, width = reader.get_resolution()
     fps = reader.get_fps()
-    writer = Writer(args, audio, height, width, video_save_path, fps)
+    writer = Writer(args, audio, height, width, reader.dar, video_save_path, fps)
 
     pbar = tqdm(total=len(reader), unit='frame', desc='inference')
     while True:
